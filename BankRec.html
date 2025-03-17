@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bank Reconciliation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f7f7f7;
+        }
+        h1 {
+            text-align: center;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        input, button {
+            padding: 10px;
+            margin: 10px 0;
+            width: 100%;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        table {
+            width: 100%;
+            margin-top: 20px;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border: 1px solid #ccc;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .highlight {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .totals {
+            font-weight: bold;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Bank Reconciliation</h1>
+        
+        <h3>Upload Bank Statement</h3>
+        <input type="file" id="bankFile" accept=".xlsx, .xls">
+        
+        <h3>Upload Company Transactions</h3>
+        <input type="file" id="companyFile" accept=".xlsx, .xls">
+        
+        <button onclick="handleFiles()">Upload & Compare</button>
+        
+        <h3>Reconciliation Status</h3>
+        <p id="reconciliationResult"></p>
+
+        <h3>Bank Transactions</h3>
+        <table id="bankTable">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Account</th>
+                    <th>Credit</th>
+                    <th>Debit</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <p class="totals">Total Bank Balance: <span id="totalBankBalance">0.00</span></p>
+
+        <h3>Company Transactions</h3>
+        <table id="companyTable">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Account</th>
+                    <th>Credit</th>
+                    <th>Debit</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <p class="totals">Total Company Balance: <span id="totalCompanyBalance">0.00</span></p>
+        
+        <h3>Variance Amount</h3>
+        <p class="totals">Variance: <span id="varianceAmount">0.00</span></p>
+    </div>
+
+    <script>
+        function handleFiles() {
+            let bankFile = document.getElementById("bankFile").files[0];
+            let companyFile = document.getElementById("companyFile").files[0];
+            
+            if (!bankFile || !companyFile) {
+                alert("Please upload both Bank and Company files.");
+                return;
+            }
+            
+            let bankReader = new FileReader();
+            let companyReader = new FileReader();
+            
+            bankReader.onload = function(e) {
+                let bankData = new Uint8Array(e.target.result);
+                let bankWorkbook = XLSX.read(bankData, { type: 'array' });
+                let bankSheet = normalizeData(XLSX.utils.sheet_to_json(bankWorkbook.Sheets[bankWorkbook.SheetNames[0]]));
+                displayTable(bankSheet, "bankTable");
+                
+                companyReader.onload = function(e) {
+                    let companyData = new Uint8Array(e.target.result);
+                    let companyWorkbook = XLSX.read(companyData, { type: 'array' });
+                    let companySheet = normalizeData(XLSX.utils.sheet_to_json(companyWorkbook.Sheets[companyWorkbook.SheetNames[0]]));
+                    displayTable(companySheet, "companyTable");
+                    compareTransactions(bankSheet, companySheet);
+                };
+                companyReader.readAsArrayBuffer(companyFile);
+            };
+            bankReader.readAsArrayBuffer(bankFile);
+        }
+
+        function normalizeData(data) {
+            return data.map(row => ({
+                date: formatDate(row["Date"] || row["date"]),
+                account: row["Account"] || row["account"],
+                credit: parseFloat(row["Credit"] || row["credit"] || 0),
+                debit: parseFloat(row["Debit"] || row["debit"] || 0)
+            }));
+        }
+
+        function formatDate(date) {
+            if (!date) return '';
+            if (typeof date === 'number') {
+                let parsedDate = new Date((date - 25569) * 86400 * 1000);
+                return parsedDate.toISOString().split('T')[0];
+            }
+            let parsedDate = new Date(date);
+            return isNaN(parsedDate) ? date : parsedDate.toISOString().split('T')[0];
+        }
+
+        function displayTable(data, tableId) {
+            let tableBody = document.getElementById(tableId).getElementsByTagName("tbody")[0];
+            tableBody.innerHTML = "";
+            let totalBalance = 0;
+
+            data.forEach(row => {
+                let tr = document.createElement("tr");
+                tr.innerHTML = `<td>${row.date || ''}</td><td>${row.account || ''}</td><td>${row.credit.toFixed(2)}</td><td>${row.debit.toFixed(2)}</td>`;
+                tableBody.appendChild(tr);
+                totalBalance += row.credit + row.debit;
+            });
+
+            if (tableId === "bankTable") {
+                document.getElementById("totalBankBalance").textContent = totalBalance.toFixed(2);
+            } else if (tableId === "companyTable") {
+                document.getElementById("totalCompanyBalance").textContent = totalBalance.toFixed(2);
+            }
+        }
+
+        function compareTransactions(bankSheet, companySheet) {
+            let unmatched = [];
+            let totalBankBalance = parseFloat(document.getElementById("totalBankBalance").textContent);
+            let totalCompanyBalance = parseFloat(document.getElementById("totalCompanyBalance").textContent);
+            let variance = totalBankBalance - totalCompanyBalance;
+            document.getElementById("varianceAmount").textContent = variance.toFixed(2);
+
+            bankSheet.forEach(bank => {
+                if (bank.credit > 0 && !companySheet.some(comp => comp.debit === bank.credit && comp.date === bank.date)) {
+                    unmatched.push(`Unmatched Credit: ${bank.credit} on ${bank.date}`);
+                }
+                if (bank.debit > 0 && !companySheet.some(comp => comp.credit === bank.debit && comp.date === bank.date)) {
+                    unmatched.push(`Unmatched Debit: ${bank.debit} on ${bank.date}`);
+                }
+            });
+
+            document.getElementById("reconciliationResult").textContent = unmatched.length > 0 ? `Reconciliation Failed!\n${unmatched.join('\n')}` : "Reconciliation Successful!";
+            document.getElementById("reconciliationResult").style.color = unmatched.length > 0 ? "red" : "green";
+        }
+    </script>
+</body>
+</html>
